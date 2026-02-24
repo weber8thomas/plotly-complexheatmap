@@ -4,13 +4,36 @@
 
 Inspired by the R [ComplexHeatmap](https://bioconductor.org/packages/ComplexHeatmap/) package by Zuguang Gu, this library brings the same expressive annotation and clustering features to the Python/Plotly ecosystem with **WebGL-first rendering** for large matrices.
 
+## Gallery
+
+### Multi-side annotations with dendrograms
+
+Categorical colour bars, numeric bar charts, and hierarchical clustering on three sides:
+
+![Annotated heatmap](assets/example_annotations.png)
+
+### Split heatmap with per-group dendrograms
+
+Rows split by annotation group, each clustered independently:
+
+![Split heatmap](assets/example_split.png)
+
+### Single-DataFrame workflow (`from_dataframe`)
+
+Pass one pandas or polars DataFrame — annotations are auto-extracted from columns:
+
+![from_dataframe](assets/example_from_dataframe.png)
+
+> See [`examples/showcase.ipynb`](examples/showcase.ipynb) for all 8 examples including stacked bars, box plots, violin plots, and polars integration.
+
 ## Installation
 
 ```bash
 pip install plotly-complexheatmap
 
-# Optional: faster clustering for large matrices
-pip install plotly-complexheatmap[fast]
+# Optional extras
+pip install plotly-complexheatmap[fast]    # fastcluster for large matrices
+pip install plotly-complexheatmap[polars]  # polars DataFrame support
 ```
 
 ## Quick Start
@@ -20,7 +43,6 @@ import numpy as np
 import pandas as pd
 from plotly_complexheatmap import ComplexHeatmap, HeatmapAnnotation
 
-# Create a gene-expression matrix
 rng = np.random.default_rng(42)
 df = pd.DataFrame(
     rng.standard_normal((30, 12)),
@@ -28,19 +50,18 @@ df = pd.DataFrame(
     columns=[f"sample_{j}" for j in range(12)],
 )
 
-# Column annotations
+# Column annotations (top)
 top_ha = HeatmapAnnotation(
     group=["Control"] * 6 + ["Treatment"] * 6,
-    quality=rng.uniform(0.7, 1.0, 12),
+    quality={"values": rng.uniform(0.7, 1.0, 12), "type": "bar", "color": "#E8853D"},
 )
 
-# Row annotations
+# Row annotations (right)
 right_ha = HeatmapAnnotation(
     pathway=["Metabolism"] * 10 + ["Signaling"] * 10 + ["Other"] * 10,
     which="row",
 )
 
-# Build the heatmap
 hm = ComplexHeatmap(
     df,
     top_annotation=top_ha,
@@ -53,12 +74,28 @@ fig = hm.to_plotly()
 fig.show()
 ```
 
+### Single-DataFrame shortcut
+
+```python
+# One flat table with data + metadata columns
+hm = ComplexHeatmap.from_dataframe(
+    df,
+    index_column="gene",
+    row_annotations=["pathway", "score"],
+    col_annotations={"group": ["Ctrl"] * 4 + ["Drug"] * 4},
+    colorscale="RdBu_r",
+    normalize="row",
+)
+```
+
+Works with both **pandas** and **polars** DataFrames.
+
 ## Features
 
 ### Hierarchical Clustering
 
 - Row and/or column clustering via `scipy.cluster.hierarchy`
-- Configurable method (`ward`, `complete`, `average`, …) and metric (`euclidean`, `correlation`, …)
+- Configurable method (`ward`, `complete`, `average`, ...) and metric (`euclidean`, `correlation`, ...)
 - Optional `fastcluster` backend for large matrices
 - Dendrograms rendered as native Plotly line traces
 
@@ -70,9 +107,12 @@ Pass data as keyword arguments to `HeatmapAnnotation` — track type is auto-det
 |-----------|------------|---------|
 | String / categorical | Discrete colour bar | `group=["A", "B", "A"]` |
 | Numeric array | Bar chart | `score=[0.5, 1.2, 0.8]` |
-| Numeric + `type="scatter"` | Scatter points | `{"values": [...], "type": "scatter"}` |
+| `type="scatter"` | Scatter points | `{"values": [...], "type": "scatter"}` |
+| `type="box"` | Box plot | `{"values": 2D_array, "type": "box"}` |
+| `type="violin"` | Violin plot | `{"values": 2D_array, "type": "violin"}` |
+| `type="stacked_bar"` | Stacked bar chart | `{"values": 2D_array, "type": "stacked_bar"}` |
 
-Supported positions: `top_annotation` (column annotations) and `right_annotation` (row annotations).
+Supported positions: `top_annotation`, `bottom_annotation`, `left_annotation`, `right_annotation`.
 
 ### Split Heatmaps
 
@@ -108,9 +148,11 @@ hm = ComplexHeatmap(df, normalize="global") # whole matrix
 | `data` | DataFrame / array | required | 2-D numeric data |
 | `cluster_rows` | bool | `True` | Cluster rows |
 | `cluster_cols` | bool | `True` | Cluster columns |
-| `top_annotation` | `HeatmapAnnotation` | `None` | Column annotations |
-| `right_annotation` | `HeatmapAnnotation` | `None` | Row annotations |
-| `colorscale` | str / list | `"RdBu_r"` | Plotly colorscale |
+| `top_annotation` | `HeatmapAnnotation` | `None` | Column annotations (top) |
+| `bottom_annotation` | `HeatmapAnnotation` | `None` | Column annotations (bottom) |
+| `left_annotation` | `HeatmapAnnotation` | `None` | Row annotations (left) |
+| `right_annotation` | `HeatmapAnnotation` | `None` | Row annotations (right) |
+| `colorscale` | str / list | blue-white-red | Plotly colorscale |
 | `normalize` | str | `"none"` | `"none"`, `"row"`, `"column"`, `"global"` |
 | `use_webgl` | bool / None | `None` | Force WebGL on/off (auto by default) |
 | `split_rows_by` | list / str | `None` | Row-split groups |
@@ -119,13 +161,25 @@ hm = ComplexHeatmap(df, normalize="global") # whole matrix
 | `name` | str | `""` | Colourbar title |
 | `width` / `height` | int | 900 / 700 | Figure size in pixels |
 
+### `ComplexHeatmap.from_dataframe`
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `df` | DataFrame | required | pandas or polars DataFrame |
+| `index_column` | str | `None` | Column to use as row labels |
+| `value_columns` | list[str] | `None` | Numeric columns for heatmap (auto-detected) |
+| `row_annotations` | list / dict | `None` | Columns to extract as row annotations |
+| `col_annotations` | dict | `None` | Per-column metadata (not from DataFrame) |
+| `row_annotation_side` | str | `"right"` | `"left"` or `"right"` |
+| `col_annotation_side` | str | `"top"` | `"top"` or `"bottom"` |
+
 ### `HeatmapAnnotation`
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `which` | str | `"column"` | `"column"` or `"row"` |
 | `gap` | float | `0.005` | Gap between tracks (fraction) |
-| `**kwargs` | various | — | Named annotation tracks |
+| `**kwargs` | various | -- | Named annotation tracks |
 
 ## Dependencies
 
@@ -133,7 +187,7 @@ hm = ComplexHeatmap(df, normalize="global") # whole matrix
 - `scipy >= 1.9.0`
 - `numpy >= 1.22.0`
 - `pandas >= 1.4.0`
-- Optional: `fastcluster >= 1.2.0`
+- Optional: `fastcluster >= 1.2.0`, `polars >= 0.20.0`
 
 ## License
 
