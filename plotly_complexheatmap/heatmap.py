@@ -185,7 +185,11 @@ class ComplexHeatmap:
             if isinstance(row_annotations, list):
                 anno_cols = set(row_annotations)
             else:
-                anno_cols = set(row_annotations.keys())
+                for col, cfg in row_annotations.items():
+                    if isinstance(cfg, dict) and "columns" in cfg:
+                        anno_cols.update(cfg["columns"])   # multi-column source
+                    else:
+                        anno_cols.add(col)
 
         if value_columns is None:
             value_columns = [c for c in pdf.columns if c not in anno_cols and pdf[c].dtype.kind in ("f", "i", "u")]
@@ -203,7 +207,13 @@ class ComplexHeatmap:
             else:
                 for col, cfg in row_annotations.items():
                     if isinstance(cfg, dict):
-                        ha_kw[col] = {"values": pdf[col].tolist(), **cfg}
+                        if "columns" in cfg:
+                            # Multi-column stacked bar: combine into 2D array
+                            multi_cols = cfg["columns"]
+                            values_2d = pdf[multi_cols].values.tolist()
+                            ha_kw[col] = {"values": values_2d, **{k: v for k, v in cfg.items() if k != "columns"}}
+                        else:
+                            ha_kw[col] = {"values": pdf[col].tolist(), **cfg}
                     else:
                         ha_kw[col] = pdf[col].tolist()
 
